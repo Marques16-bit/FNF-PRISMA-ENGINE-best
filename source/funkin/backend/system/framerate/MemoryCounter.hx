@@ -2,22 +2,30 @@ package funkin.backend.system.framerate;
 
 import openfl.display.Sprite;
 import openfl.text.TextField;
-import openfl.text.TextFormat;
 
+/**
+ * Prisma Engine - contador de RAM e CPU.
+ *
+ *   RAM: <consumo do jogo> / <RAM total do aparelho>
+ *   CPU: <uso do processo>%
+ */
 class MemoryCounter extends Sprite {
-	public var memoryText:TextField;
-	public var memoryPeakText:TextField;
+	public var memoryText:TextField; // "RAM: 512 MB"
+	public var memoryPeakText:TextField; // " / 7.4 GB" (RAM total do aparelho)
+	public var cpuText:TextField; // "CPU: 12%"
 
-	public var memory:Float = 0;
-	public var memoryPeak:Float = 0;
+	public var memory:Float = 0; // consumo do jogo (bytes)
+	public var memoryPeak:Float = 0; // RAM total do aparelho (bytes)
+	public var cpu:Float = -1; // uso de CPU (%)
 
 	public function new() {
 		super();
 
 		memoryText = new TextField();
 		memoryPeakText = new TextField();
+		cpuText = new TextField();
 
-		for(label in [memoryText, memoryPeakText]) {
+		for(label in [memoryText, memoryPeakText, cpuText]) {
 			label.autoSize = LEFT;
 			label.x = 0;
 			label.y = 0;
@@ -28,69 +36,41 @@ class MemoryCounter extends Sprite {
 			addChild(label);
 		}
 		memoryPeakText.alpha = 0.5;
-		#if !(cpp && (windows || mac || linux))
-		memoryPeakText.visible = false;
-		#end
+
+		cpuText.text = "CPU";
+		cpuText.y = memoryText.height;
 	}
 
 	public function reload() {
-		for(label in [memoryText, memoryPeakText]) label.defaultTextFormat = Framerate.textFormat;
+		for(label in [memoryText, memoryPeakText, cpuText]) label.defaultTextFormat = Framerate.textFormat;
+		cpuText.y = memoryText.height;
 	}
-
-	private var usingLegacy:Bool = false;
 
 	public override function __enterFrame(t:Float) {
 		if (alpha <= 0.05) return;
 		super.__enterFrame(t);
 
+		PrismaStats.update(t / 1000);
+
 		#if (cpp && (windows || mac || linux))
-		var legacy = funkin.options.Options.legacyMemoryCounter;
-
-		if (legacy) {
-			if (legacy != usingLegacy) {
-				usingLegacy = legacy;
-				memoryPeak = 0;
-			}
-
-			final mem = MemoryUtil.currentMemUsage();
-			if (memoryPeak < mem) memoryPeak = mem;
-			if (mem == memory) {
-				updateLabelPosition();
-				return;
-			}
-
-			memory = mem;
-			memoryPeakText.visible = true;
-			memoryText.text = CoolUtil.getSizeString(memory);
-			memoryPeakText.text = ' / ${CoolUtil.getSizeString(memoryPeak)}';
-		} else {
-			if (legacy != usingLegacy) usingLegacy = legacy;
-
-			final gcMem = MemoryUtil.currentMemUsage();
-			final osMem = MemoryUtil.currentProcessMemUsage();
-
-			if (gcMem == memory && osMem == memoryPeak) {
-				updateLabelPosition();
-				return;
-			}
-
-			memory = gcMem;
-			memoryPeak = osMem;
-			memoryPeakText.visible = true;
-			memoryText.text = CoolUtil.getSizeString(gcMem);
-			memoryPeakText.text = ' / ${CoolUtil.getSizeString(osMem)}';
-		}
+		final game:Float = MemoryUtil.currentProcessMemUsage();
 		#else
-		final mem = MemoryUtil.currentMemUsage();
+		final game:Float = PrismaStats.gameRam;
+		#end
+		final total:Float = PrismaStats.deviceRam;
+		final cpuNow:Float = Math.round(PrismaStats.cpuPercent);
 
-		if (mem == memory) {
-			updateLabelPosition();
-			return;
+		if (game != memory || total != memoryPeak) {
+			memory = game;
+			memoryPeak = total;
+			memoryText.text = 'RAM: ${PrismaStats.format(game)}';
+			memoryPeakText.text = ' / ${PrismaStats.format(total)}';
 		}
 
-		memory = mem;
-		memoryText.text = CoolUtil.getSizeString(mem);
-		#end
+		if (cpuNow != cpu) {
+			cpu = cpuNow;
+			cpuText.text = 'CPU: ${Std.int(cpuNow)}%';
+		}
 
 		updateLabelPosition();
 	}
